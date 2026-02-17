@@ -116,7 +116,7 @@ if __name__ == "__main__":
         #load the history of the chat we are switching to
         st.session_state.messages = st.session_state['CHATS'][target_chat]
 
-    #create delete chat feature (hopefully)
+    #create delete chat feature
     def delete_chat(target_chat: int): #keep at least 1 chat available not 0
         if len(st.session_state['CHATS']) <= 1:
             return
