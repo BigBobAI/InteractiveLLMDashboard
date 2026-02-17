@@ -13,17 +13,10 @@ import ollama #in venv --> pip install ollama
 from pypdf import PdfReader #in venv --> pip install pypdf
 import pandas as pd #in venv --> pip install pandas, pip install tabulate
 from docx import Document #in venv --> pip install python-docx
-from docling.document_converter import DocumentConverter
+
+#this comment is being added for test purposes
 
 #also note, for installations you should also be able to do pip install -r requirements.txt (all of the requirements should be in there)
-
-
-#docling testing --> remove after research is finished
-#source = "https://arxiv.org/pdf/2408.09869" --> where the file is coming from
-#converter = DocumentConverter() --> converter
-#doc = converter.convert(source).document --> convert the file into a docling document
-#print(doc.export_to_markdown()) --> output the document
-
 
 if __name__ == "__main__":
 
@@ -54,8 +47,8 @@ if __name__ == "__main__":
         return st.container(key=f"{name}-{uuid.uuid4()}")
 
     MODEL = 'llava:7b' #this is the model we are using,  if you don't already have this on your computer in terminal do: ollama run llava:7b
-
-    def warmup_model(): #warmup function to start the model before the user inputs anything, this is to reduce the wait time for the first response
+    #ben warmup process
+    def warmup_model():
         try:
             requests.post(
                 "http://localhost:11434/api/chat",
@@ -67,10 +60,12 @@ if __name__ == "__main__":
 
 
     # --- Session State Initialization---
-    if 'MODEL_WARMED_UP' not in st.session_state:
-        with st.spinner("Warming up Big Bob... This may take a moment."): #warmup message while the model is starting
+    #This loads the model and keeps in active state
+    if "MODEL_WARMED" not in st.session_state:
+        with st.spinner("Loading Big Bob Model"):
             warmup_model()
-        st.session_state['MODEL_WARMED_UP'] = True
+        st.session_state["MODEL_WARMED"] = True
+
 
 
     if 'CHATS' not in st.session_state:
@@ -120,6 +115,29 @@ if __name__ == "__main__":
 
         #load the history of the chat we are switching to
         st.session_state.messages = st.session_state['CHATS'][target_chat]
+
+    #create delete chat feature (hopefully)
+    def delete_chat(target_chat: int): #keep at least 1 chat available not 0
+        if len(st.session_state['CHATS']) <= 1:
+            return
+
+        st.session_state['CHATS'][st.session_state.current_chat] = st.session_state.messages
+
+        st.session_state['CHATS'].pop(target_chat)
+        st.session_state['CHAT_NAMES'].pop(target_chat)
+
+        if target_chat < st.session_state.current_chat:
+            st.session_state.current_chat -= 1
+
+        elif target_chat == st.session_state.current_chat:
+            st.session_state.current_chat = max(0, st.session_state.current_chat - 1)
+
+        st.session_state.selected_chat = st.session_state.current_chat
+
+        st.session_state.messages = st.session_state['CHATS'][st.session_state.current_chat].copy()
+
+        st.rerun()
+
 
     #initializes the messages for the current view
     if 'messages' not in st.session_state:
@@ -188,101 +206,85 @@ if __name__ == "__main__":
                 st.session_state['CHAT_NAMES'][st.session_state.current_chat] = new_name
                 st.rerun()
 
+        files_uploaded = st.file_uploader("Pick a file") #allows user to upload a file
 
-    # --- File Uploading ---
+        if files_uploaded is not None: #if there is a file that have been uploaded
 
-        files_uploaded = st.file_uploader("Pick a file", accept_multiple_files=True) #allows user to upload a file
+            print(f"A file has been uploaded. Name: '{files_uploaded.name}', Type: '{files_uploaded.type}'") #this is a test to print to the console. delete later
 
-        #if there are 1 or more files uploaded
-        while files_uploaded is not None and len(files_uploaded) > 0:
-            i = 0 #counter for files uploaded, used for naming and saving files
-            for files in files_uploaded:
-                save_folder = 'files_uploaded_to_Bob'  #define the folder to save uploaded files
-                if not os.path.exists(save_folder):
-                    os.makedirs(save_folder) #if the folder doesn't exist, make it
-
-                #define the full path of the file and the folder
-                file_path = os.path.join(save_folder, files_uploaded[i].name)
-
-                #write the information of the file to the folder
-                with open(file_path, "wb") as f:
-                    f.write(files_uploaded[i].getbuffer())
-
-                st.write(f"Saved: {files_uploaded[i].name}")
-                
-
-
-
-                #with the file now uploaded and saved, use docling to interpret it
-                source = file_path #where the file is coming from
-                converter = DocumentConverter() #converter
-                doc = converter.convert(source).document #convert the file into a docling document
-
-                #define the full path of the file and the folder
-                docling_file_path = os.path.join(save_folder, "docling_" + files_uploaded[i].name)
-
-                #write the information of the file to the folder
-                with open(docling_file_path, "wb") as f:
-                    f.write((doc.export_to_markdown().encode('utf-8')))
-
-                st.write(f"Saved: {files_uploaded[i].name}")
-
-
-                #open the file path to read and tell Bob. --> might move this to a later area, so he only reads once..?
-                with open(docling_file_path, "r") as f:
+            if files_uploaded.type == 'text/plain': #if the file i sjust plain text
+                file_contents = files_uploaded.read().decode("utf-8") #read and decode the file (put that in file data)
+                st.session_state.messages.append(
+                    {
+                        'role': 'system',
+                        'content': f"A file has been uploaded named: {files_uploaded.name} "
+                                   f"The contents of the file is: {file_contents}"
+                    }
+                ) #tell the assistant what the file is, but do not print this out
+            
+            elif files_uploaded.type == 'application/pdf': #if the file is a pdf
+                file_contents = PdfReader(files_uploaded) #read and decode the file (put that in file data)
+                number_of_pages = len(file_contents.pages) #find the number of pages
+                #decode each page and print each page individually to the assistant
+                for i in range(number_of_pages): 
+                    page = file_contents.pages[i] 
+                    file_text = page.extract_text()
+                    #system message for LLM (append for each page)
                     st.session_state.messages.append(
-                            {
-                                'role': 'system',
-                                'content': f"A file has been uploaded named: {f.name} "                                        
-                                            f"The contents of the file is: {f.read()}"
-                            }
-
-
+                        {
+                            'role': 'system',
+                            'content': (
+                                f"A file has been uploaded named: {files_uploaded.name} \n"
+                                f"The contents of page {i+1} the file is: {file_text} \n"
+                                f"The file is {number_of_pages} pages long."
+                            )
+                        }
                     ) #tell the assistant what the file is, but do not print this out
 
-                if len(files_uploaded) > 1:
-                    files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
-                    len(files_uploaded) - 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
-                
-                else:
-                    files_uploaded = None #set the file uploader to None to reset it
+            elif files_uploaded.type == 'text/csv': #if it's a csv file
+                df = pd.read_csv(files_uploaded)
+                file_contents = df.to_markdown(index = False)
 
-                print("File was uploaded btw: " + f.name) #print the name of the file that was uploaded to the terminal for testing purposes
+                #system message for LLM
+                st.session_state.messages.append(
+                    {
+                        'role' : 'system',
+                        'content' : f"A file has been uploaded named: {files_uploaded.name} \n"
+                                    f"The contents of the CSV  file are: \n {file_contents}"
+                    }
+                )
 
+            elif files_uploaded.type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': #if it's a .docx file
 
+                document = Document(files_uploaded)
+                file_contents = ""
+                for paragraph in document.paragraphs:
+                    file_contents += paragraph.text + "\n"
 
-                #i += 1 #iterate the file counter for the next file if there are multiple files uploaded
+                #system message for LLM
+                st.session_state.messages.append(
+                    {
+                        'role': 'system',
+                        'content': f"A file has been uploaded named: {files_uploaded.name} \n"
+                                    f"The contents of the Word document are: \n{file_contents}"
+                    }
+                )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        #########
-        #file reading space
-        #########
-
-
-
-
-
-
-
-
+            else:
+                print("There's an issue with finding the file type dawg")
+                st.session_state.messages.append(
+                    {
+                        'role': 'assistant',
+                        'content': "There's an issue trying to read this type of file. Please let devlopers know so that I can be improved to support this need."
+                    }
+                ) #tell the assistant what the file is, but do not print this out
 
         st.button("-Clear All Chats", key="clear_chat_button", on_click=clear_all_chats) #button to clear all chats
 
+        delete_disabled = (len(st.session_state['CHATS']) <= 1)
+
+        if st.button("Delete Selected Chat", key="delete_selected_chat_button", disabled=delete_disabled): #delete current selected chat
+            delete_chat(st.session_state.selected_chat)
     # --- Main Chat Logic ---
 
     def generate_response():
@@ -291,7 +293,7 @@ if __name__ == "__main__":
     
         response = ollama.chat(model=MODEL, stream=True, messages=st.session_state.messages) #will get the response from the model
 
-        keep_alive="24h", #keep him running!
+        keep_alive="24h",
         options={
             "num_predict": 256
         }
@@ -301,6 +303,10 @@ if __name__ == "__main__":
             token = chunk["message"]["content"] #token is getting the chunk content 
             st.session_state["full_message"] += token #adds to the full message so far
             yield token #display the token
+
+
+
+
 
     if prompt := st.chat_input("Type here", key="chat_input_styled"): #this text will show up in the input bar
         st.session_state.messages.append({"role": "user", "content": prompt}) #if the user types a prompt append it
