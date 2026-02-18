@@ -4,12 +4,21 @@ os.environ["STREAMLIT_DEV_MODE"] = "0"
 os.environ["STREAMLIT_WATCHER_TYPE"] = "none"
 os.environ["STREAMLIT_SERVER_PORT"] = "8501"
 os.environ["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
+
 import sys
+import io
+import uuid
+import tempfile
+import subprocess
+import threading
+import queue
+import re
 import config 
-import uuid 
 import requests
 import streamlit as st #in venv --> pip install streamlit
 import ollama #in venv --> pip install ollama
+from streamlit_mic_recorder import mic_recorder
+from faster_whisper import WhisperModel
 from pypdf import PdfReader #in venv --> pip install pypdf
 import pandas as pd #in venv --> pip install pandas, pip install tabulate
 from docx import Document #in venv --> pip install python-docx
@@ -80,6 +89,90 @@ if __name__ == "__main__":
         st.session_state.current_chat = 0
         st.session_state.selected_chat = 0
 
+    if "messages" not in st.session_state:
+        st.session_state.messages = st.session_state['CHATS'][st.session_state.current_chat].copy()
+
+    #voice-mode state
+    if "voice_mode" not in st.session_state:
+        st.session_state.voice_mode = True
+    if "auto_speak" not in st.session_state:
+        st.session_state.auto_speak = True
+    if "mic_cycle" not in st.session_state:
+        st.session_state.mic_cycle = 0
+
+    if "tts_queue" not in st.session_state:
+        st.session_state.tts_queue = queue.Queue()
+    
+    if "tts_worker_started" not in st.session_state:
+        st.session_state.tts_worker_started = False
+
+    def _tts_worker(q: queue.Queue):
+        while True:
+            text = q.get()
+            if text is None:
+                break
+            text = text.strip()
+            if not text:
+                continue
+            subprocess.Popen(["say", text])
+
+    def ensure_tts_worker_running():
+        if not st.session_state.tts_worker_started:
+            t = threading.Thread(target=_tts_worker, args=(st.session_state.tts_queue,), daemon=True)
+            t.start()
+            st.session_state.tts_worker_started = True
+    
+    def enqueue_tts(text: str):
+    # avoid speaking tiny fragments
+        if text and len(text.strip()) >= 2:
+            st.session_state.tts_queue.put(text.strip())
+
+    def get_whisper_model(): #cache whisper model so loads once not 10x times
+        return WhisperModel("base", device="cpu", compute_type="int8")
+    
+    def transcribe_audio_to_text(wav_bytes: bytes) -> str:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            tmp.write(wav_bytes)
+            tmp_path = tmp.name
+
+        whisper_model = get_whisper_model()
+        segments, _info = whisper_model.transcribe(tmp_path, vad_filter=True)
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        return text
+
+    def tts_to_wav_bytes(text: str) -> bytes | None:
+        text = (text or "").strip()
+        if not text:
+            return None
+        
+        try:
+            import pyttsx3  # pip install pyttsx3
+            engine = pyttsx3.init()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as out_wav:
+                out_path = out_wav.name
+
+            engine.save_to_file(text, out_path)
+            engine.runAndWait()
+
+            with open(out_path, "rb") as f:
+                return f.read()
+        except Exception:
+            pass
+
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".aiff") as out_aiff:
+                aiff_path = out_aiff.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as out_wav:
+                wav_path = out_wav.name
+
+            subprocess.run(["say", "-o", aiff_path, text], check=True)
+            subprocess.run(["afconvert", aiff_path, "-f", "WAVE", "-d", "LEI16", wav_path], check=True)
+
+            with open(wav_path, "rb") as f:
+                return f.read()
+        except Exception:
+            return None
+
     # --- Chat Management Functions---
 
     #create our clear all chats function
@@ -135,11 +228,8 @@ if __name__ == "__main__":
         if chat_index == st.session_state.current_chat:
             if st.session_state.current_chat >= len(st.session_state['CHATS']):
                 st.session_state.current_chat = len(st.session_state['CHATS']) -1
-
             st.session_state.selected_chat = st.session_state.current_chat
-
             st.session_state.messages = st.session_state['CHATS'][st.session_state.current_chat].copy()
-
             st.rerun()
 
 
@@ -199,6 +289,10 @@ if __name__ == "__main__":
         #switch chats if needed
         if(st.session_state.current_chat != st.session_state.selected_chat):
             chat_switch(st.session_state.selected_chat)
+
+        #Voice Controls
+        st.session_state.voice_mode = st.toggle("🎙️ Voice Mode (talk to Bob)", value=st.session_state.voice_mode)
+        st.session_state.auto_speak = st.toggle("🔊 Bob speaks responses", value=st.session_state.auto_speak)
 
         # --- Rename current chat ---
         current_name = st.session_state['CHAT_NAMES'][st.session_state.current_chat]
@@ -309,48 +403,112 @@ if __name__ == "__main__":
 
     # --- Main Chat Logic ---
 
-    def generate_response():
-        #only pass non-system messages (or the last few if context is long) 
-        #for simplicity, we pass all messages including the hidden system prompt for now
-    
-        response = ollama.chat(model=MODEL, stream=True, messages=st.session_state.messages) #will get the response from the model
+# --- Main Chat Logic ---
+@st.cache_resource
+def get_whisper_model():
+    return WhisperModel("base", device="cpu", compute_type="int8")
 
-        keep_alive="24h", #keep him running!
-        options={
-            "num_predict": 256
-        }
+def transcribe_audio_to_text(wav_bytes: bytes) -> str:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(wav_bytes)
+        tmp_path = tmp.name
 
-        st.session_state["full_message"] = "" #reset full message before generation
-        for chunk in response:
-            token = chunk["message"]["content"] #token is getting the chunk content 
-            st.session_state["full_message"] += token #adds to the full message so far
-            yield token #display the token
+    whisper_model = get_whisper_model()
+    segments, _info = whisper_model.transcribe(tmp_path, vad_filter=True)
+    text = " ".join(seg.text.strip() for seg in segments).strip()
+    return text
 
-    if prompt := st.chat_input("Type here", key="chat_input_styled"): #this text will show up in the input bar
-        st.session_state.messages.append({"role": "user", "content": prompt}) #if the user types a prompt append it
-        
-        #display the user prompt
-        with unique_message("user"):
-            with st.chat_message("user", avatar=user_avatar):
-                st.markdown(prompt) 
-        
+def generate_response_stream():
+    response = ollama.chat(
+        model=MODEL,
+        stream=True,
+        messages=st.session_state.messages,
+        keep_alive="24h",
+        options={"num_predict": 256},
+    )
 
-        try:
-            #generate and display the assistant response
-            with st.chat_message("assistant", avatar=assistant_avatar):
-                stream = generate_response()
-                response = st.write_stream(stream) #write the stream response
-                st.session_state.messages.append({'role': 'assistant', 'content': response}) #append assitant response into content
-        except Exception as e: #if ollama isn't running, there will be an error, attempt to run ollama, if that fails, provide instructions for how to get ollama
-            st.error("Attempting to start Ollama . . . Please wait a few seconds and then try your prompt again.")
-            os.system("ollama serve")
-            if os.system("pgrep ollama") != 0:
-                st.error("It appears there was an error connecting to the Ollama model. Please ensure that Ollama is installed and the model llava:7b is downloaded. ")
-                st.error("If Ollama is already installed, please try to manualy run it by entering the command 'ollama serve' in your terminal, and then rerun or reload Bob.")
-                st.error("To install Ollama: visit https://ollama.com/ and download.")
-                st.error("Once ollama is installed, run the command 'ollama run llava:7b' in your terminal to download the model.")
-                st.error( "Please consult the setup documentation for further details.")
-            else:
-                st.error("Ollama has started successfully! Feel free to continue our conversation now!") #if ollama actually does run, it technically shouldn't reach here.... but just in case
-            st.stop()
+    for chunk in response:
+        yield chunk["message"]["content"]
+
+def run_chat_turn(user_text: str):
+
+    st.session_state.messages.append({"role": "user", "content": user_text})
+
+
+    with unique_message("user"):
+        with st.chat_message("user", avatar=user_avatar):
+            st.markdown(user_text)
+
+
+    try:
+        with st.chat_message("assistant", avatar=assistant_avatar):
+            ensure_tts_worker_running()
+
+            text_placeholder = st.empty()
+            full = ""
+            speak_buffer = ""
             
+            response = ollama.chat(
+                model=MODEL,
+                stream=True,
+                messages=st.session_state.messages,
+                keep_alive="24h",
+                options={"num_predict": 256},
+            )
+
+        for chunk in response:
+            token = chunk["message"]["content"]
+            full += token
+            speak_buffer += token
+            text_placeholder.markdown(full)
+            
+            if st.session_state.auto_speak:
+                parts = re.split(r'([.!?]+)', speak_buffer)
+                if len(parts) > 3:
+                    completed = ""
+                    for i in range(0, len(parts)-2, 2):
+                        completed += (parts[i] + parts[i+1])
+                        
+                    enqueue_tts(completed)
+                    speak_buffer = parts[-2] + parts[-1]
+        assistant_text = full 
+
+        st.session_state.messages.append({"role": "assistant", "content": assistant_text})
+
+        if st.session_state.voice_mode:
+            st.session_state.mic_cycle += 1
+            st.rerun()
+
+    except Exception:
+        st.error("Attempting to start Ollama . . . Please wait a few seconds and then try again.")
+        os.system("ollama serve")
+        if os.system("pgrep ollama") != 0:
+            st.error("Error connecting to Ollama. Ensure Ollama is installed and llava:7b is downloaded.")
+            st.stop()
+        else:
+            st.success("Ollama started successfully! Try again.")
+            st.stop()
+
+# --- Voice Input UI ---
+if st.session_state.voice_mode:
+    st.caption("🎙️ Voice Mode is ON — record a message and Bob will respond.")
+    audio = mic_recorder(
+        start_prompt="🎙️ Hold to talk",
+        stop_prompt="⏹️ Release to send",
+        just_once=True,
+        key=f"mic_recorder_main_{st.session_state.mic_cycle}",
+    )
+
+    if audio and isinstance(audio, dict) and audio.get("bytes"):
+        with st.spinner("Transcribing..."):
+            spoken_text = transcribe_audio_to_text(audio["bytes"])
+
+        if spoken_text:
+            run_chat_turn(spoken_text)
+        else:
+            st.warning("I couldn't hear anything clearly—try again a bit louder.")
+
+# --- text input only ---
+prompt = st.chat_input("Type here", key="chat_input_styled")
+if prompt:
+    run_chat_turn(prompt)
