@@ -30,14 +30,14 @@ div.stButton > button:hover{
 
 .st-key-clear_chat_button button{
     position:absolute;
-    bottom: -50vb;
+    bottom: -40vb;
     width:100%;
 }
 
 
 .stFileUploader{
     position:absolute;
-    bottom: -45vb;
+    bottom: -38vb;
     width:100%;
 }
 

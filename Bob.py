@@ -35,6 +35,15 @@ if __name__ == "__main__":
         {'role': 'assistant', 'content': 'Hello! I am Bob. Please let me know how I can best assist you today.'}
     ]
 
+
+    #start off with an uploader key for the file uploader in the session state (this is important to be able to clear out file uploader)
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = 0
+
+    #this clears the file loader
+    def clear_file_uploader():
+        st.session_state["uploader_key"] += 1 #increment the uploader key to reset the file uploader
+
     #function to find the path of the file that it is given (note: MEIPASS is the temporary folder pyinstaller makes, which is why we need this)
     def find_path(file_path):
         if hasattr(sys, "_MEIPASS"):
@@ -198,7 +207,7 @@ if __name__ == "__main__":
         st.button("+New Chat", key="new_chat_button", on_click=new_chat) #button to start a new chat
 
         #Chat Deletion Button
-        if st.button("🗑️ Delete Current Chat", key="delete_current_chat_button"):
+        if st.button("-Delete Current Chat", key="delete_current_chat_button"):
             delete_chat(st.session_state.current_chat)
 
         #selectbox/dropdown/accordion
@@ -248,11 +257,12 @@ if __name__ == "__main__":
 
     # --- File Uploading ---
 
-        files_uploaded = st.file_uploader("Pick a file", accept_multiple_files=True) #allows user to upload a file
+        files_uploaded = st.file_uploader("Pick a file", accept_multiple_files=True, key=st.session_state["uploader_key"]) #allows user to upload a file
 
         #if there are 1 or more files uploaded
-        while files_uploaded is not None and len(files_uploaded) > 0:
+        if files_uploaded is not None and len(files_uploaded) > 0:
             i = 0 #counter for files uploaded, used for naming and saving files
+            files_uploaded_length = len(files_uploaded) #length of the file uploader list, used to determine when we have uploaded all files in the list
             for files in files_uploaded:
                 save_folder = 'files_uploaded_to_Bob'  #define the folder to save uploaded files
                 if not os.path.exists(save_folder):
@@ -263,12 +273,11 @@ if __name__ == "__main__":
 
                 #write the information of the file to the folder
                 with open(file_path, "wb") as f:
-                    f.write(files_uploaded[i].getbuffer())
-
-                st.write(f"Saved: {files_uploaded[i].name}")
-                
+                    f.write(files_uploaded[i].getbuffer())                
 
 
+
+                #DOCLING STUFF IS GOING TO HAPPEN BELOW#
 
                 #with the file now uploaded and saved, use docling to interpret it
                 source = file_path #where the file is coming from
@@ -282,10 +291,8 @@ if __name__ == "__main__":
                 with open(docling_file_path, "wb") as f:
                     f.write((doc.export_to_markdown().encode('utf-8')))
 
-                st.write(f"Saved: {files_uploaded[i].name}")
 
-
-                #open the file path to read and tell Bob. --> might move this to a later area, so he only reads once..?
+                #open the file path to read and tell Bob the file name and contents
                 with open(docling_file_path, "r") as f:
                     st.session_state.messages.append(
                             {
@@ -293,22 +300,29 @@ if __name__ == "__main__":
                                 'content': f"A file has been uploaded named: {f.name} "                                        
                                             f"The contents of the file is: {f.read()}"
                             }
-
-
-                    ) #tell the assistant what the file is, but do not print this out
-
-                if len(files_uploaded) > 1:
-                    files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
-                    len(files_uploaded) - 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
-                
-                else:
-                    files_uploaded = None #set the file uploader to None to reset it
-
+                    ) 
                 print("File was uploaded btw: " + f.name) #print the name of the file that was uploaded to the terminal for testing purposes
 
+                files_uploaded_length -= 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
+                if files_uploaded_length >= 1:
+                    files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
+                    i += 1 #increment the file uploader list counter to move to the next file in the list
+                
+                elif files_uploaded_length == 0: #if there are no more files to upload, clear the file uploader and let the user know their files have been processed
+                    clear_file_uploader() #all files have been read, so clear the file uploader for *new* files
+                    st.session_state.messages.append( #let the user know their files have been processed
+                            {
+                                'role': 'assistant',
+                                'content': "All files have been uploaded and processed. How may I assist you with them?"
+                            }
+                    )
+                    st.rerun() #rerun to update the chat with the new assistant message about files being uploaded and processed
 
 
-                #i += 1 #iterate the file counter for the next file if there are multiple files uploaded
+                
+
+
+
 
 
 
