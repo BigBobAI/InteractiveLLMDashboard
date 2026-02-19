@@ -141,6 +141,29 @@ if __name__ == "__main__":
         st.session_state.messages = st.session_state['CHATS'][st.session_state.current_chat].copy() #load the messages from now-current chat
         st.rerun()
 
+
+    def make_unique_chat_name(desired_name: str, current_chat_index: int) -> str: #function makes it so when you have a chat with same name it increments it
+        base = desired_name.strip() ##returns unique chat name. If desired_name exists then (case-insensitive) appends -1, -2.
+        if not base:
+            return ""
+        
+        existing_names = [
+            n for i, n in enumerate(st.session_state['CHAT_NAMES'])
+            if i != current_chat_index
+        ]
+        #compare its case-insensitively 
+        existing_lower = {n.lower() for n in existing_names}
+
+        if base.lower() not in existing_lower:
+            return base
+        
+        suffix = 1
+        while f"{base}-{suffix}".lower() in existing_lower:
+            suffix += 1
+
+        return f"{base}-{suffix}"
+
+
     #initializes the messages for the current view
     if 'messages' not in st.session_state:
         #initialize messages with the first chat's history
@@ -208,10 +231,20 @@ if __name__ == "__main__":
 
         if st.button("Save name", key="save_chat_name_button"):
             # Only update if it's not empty and actually changed
-            if new_name.strip() and new_name != current_name:
-                st.session_state['CHAT_NAMES'][st.session_state.current_chat] = new_name
-                st.rerun()
+            desired = new_name.strip()
 
+            if not desired:
+                st.warning("Chat name cannot be empty.") #error if name is empt
+            else: 
+                unique_name = make_unique_chat_name(desired, st.session_state.current_chat)
+                
+                st.session_state['CHAT_NAMES'][st.session_state.current_chat] = unique_name
+
+                if unique_name != desired:
+                    st.info(f"Chat name already exists. Saved as '{unique_name}' instead.")
+                else:
+                    st.success("Chat renamed successfully.")
+                st.rerun()
 
     # --- File Uploading ---
 
