@@ -264,59 +264,110 @@ if __name__ == "__main__":
             i = 0 #counter for files uploaded, used for naming and saving files
             files_uploaded_length = len(files_uploaded) #length of the file uploader list, used to determine when we have uploaded all files in the list
             for files in files_uploaded:
-                save_folder = 'files_uploaded_to_Bob'  #define the folder to save uploaded files
-                if not os.path.exists(save_folder):
-                    os.makedirs(save_folder) #if the folder doesn't exist, make it
+                try:
+                    save_folder = 'files_uploaded_to_Bob'  #define the folder to save uploaded files
+                    if not os.path.exists(save_folder):
+                        os.makedirs(save_folder) #if the folder doesn't exist, make it
 
-                #define the full path of the file and the folder
-                file_path = os.path.join(save_folder, files_uploaded[i].name)
+                    #define the full path of the file and the folder
+                    file_path = os.path.join(save_folder, files_uploaded[i].name)
 
-                #write the information of the file to the folder
-                with open(file_path, "wb") as f:
-                    f.write(files_uploaded[i].getbuffer())                
-
-
-
-                #DOCLING STUFF IS GOING TO HAPPEN BELOW#
-
-                #with the file now uploaded and saved, use docling to interpret it
-                source = file_path #where the file is coming from
-                converter = DocumentConverter() #converter
-                doc = converter.convert(source).document #convert the file into a docling document
-
-                #define the full path of the file and the folder
-                docling_file_path = os.path.join(save_folder, "docling_" + files_uploaded[i].name)
-
-                #write the information of the file to the folder
-                with open(docling_file_path, "wb") as f:
-                    f.write((doc.export_to_markdown().encode('utf-8')))
+                    #write the information of the file to the folder
+                    with open(file_path, "wb") as f:
+                        f.write(files_uploaded[i].getbuffer())                
 
 
-                #open the file path to read and tell Bob the file name and contents
-                with open(docling_file_path, "r") as f:
-                    st.session_state.messages.append(
-                            {
-                                'role': 'system',
-                                'content': f"A file has been uploaded named: {f.name} "                                        
-                                            f"The contents of the file is: {f.read()}"
-                            }
-                    ) 
-                print("File was uploaded btw: " + f.name) #print the name of the file that was uploaded to the terminal for testing purposes
 
-                files_uploaded_length -= 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
-                if files_uploaded_length >= 1:
-                    files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
-                    i += 1 #increment the file uploader list counter to move to the next file in the list
-                
-                elif files_uploaded_length == 0: #if there are no more files to upload, clear the file uploader and let the user know their files have been processed
-                    clear_file_uploader() #all files have been read, so clear the file uploader for *new* files
-                    st.session_state.messages.append( #let the user know their files have been processed
+                    #DOCLING STUFF IS GOING TO HAPPEN BELOW#
+
+                    #with the file now uploaded and saved, use docling to interpret it
+                    source = file_path #where the file is coming from
+                    converter = DocumentConverter() #converter
+                    doc = converter.convert(source).document #convert the file into a docling document
+
+                    #define the full path of the file and the folder
+                    docling_file_path = os.path.join(save_folder, "docling_" + files_uploaded[i].name)
+
+                    #write the information of the file to the folder
+                    with open(docling_file_path, "wb") as f:
+                        f.write((doc.export_to_markdown().encode('utf-8')))
+
+
+                    #open the file path to read and tell Bob the file name and contents
+                    with open(docling_file_path, "r") as f:
+                        st.session_state.messages.append(
+                                {
+                                    'role': 'system',
+                                    'content': f"A file has been uploaded named: {f.name} "                                        
+                                                f"The contents of the file is: {f.read()}"
+                                }
+                        ) 
+                    print("File was uploaded btw: " + f.name) #print the name of the file that was uploaded to the terminal for testing purposes
+
+                    files_uploaded_length -= 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
+                    if files_uploaded_length >= 1:
+                        files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
+                        i += 1 #increment the file uploader list counter to move to the next file in the list
+                    
+                    elif files_uploaded_length == 0: #if there are no more files to upload, clear the file uploader and let the user know their files have been processed
+                        clear_file_uploader() #all files have been read, so clear the file uploader for *new* files
+                        st.session_state.messages.append( #let the user know their files have been processed
+                                {
+                                    'role': 'assistant',
+                                    'content': "All files have been uploaded and processed. How may I assist you with them?"
+                                }
+                        )
+                        st.rerun() #rerun to update the chat with the new assistant message about files being uploaded and processed
+                except Exception as e:
+                    if files_uploaded[i].type == 'text/plain': #if the file i sjust plain text
+                        file_contents = files_uploaded[i].read().decode("utf-8") #read and decode the file (put that in file data)
+                        st.session_state.messages.append(
+                        {
+                            'role': 'system',
+                            'content': f"A file has been uploaded named: {files_uploaded[i].name} "
+                                f"The contents of the file is: {file_contents}"
+                        }
+                        ) #tell the assistant what the file is, but do not print this out
+
+                        files_uploaded_length -= 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
+                        if files_uploaded_length >= 1:
+                            files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
+                            i += 1 #increment the file uploader list counter to move to the next file in the list
+                    
+                        elif files_uploaded_length == 0: #if there are no more files to upload, clear the file uploader and let the user know their files have been processed
+                            clear_file_uploader() #all files have been read, so clear the file uploader for *new* files
+                            st.session_state.messages.append( #let the user know their files have been processed
                             {
                                 'role': 'assistant',
                                 'content': "All files have been uploaded and processed. How may I assist you with them?"
                             }
-                    )
-                    st.rerun() #rerun to update the chat with the new assistant message about files being uploaded and processed
+                        )
+                        st.rerun()
+                        
+                    else:
+                        print("There's an issue with finding the file type dawg")
+                        st.session_state.messages.append(
+                        {
+                            'role': 'assistant',
+                            'content': f"There's an issue trying to read this type of file. File name: {files_uploaded[i].name}. Please let developers know so that I can be improved to support this need."
+                        }
+                        )
+                        files_uploaded_length -= 1 #decrease the length of the file uploader list by 1 since we have already uploaded one file
+                        if files_uploaded_length >= 1:
+                            files_uploaded[i]=files_uploaded[i+1]  #move to the next file in the list if there are multiple files uploaded
+                            i += 1 #increment the file uploader list counter to move to the next file in the list
+                    
+                        elif files_uploaded_length == 0: #if there are no more files to upload, clear the file uploader and let the user know their files have been processed
+                            clear_file_uploader() #all files have been read, so clear the file uploader for *new* files
+                            st.session_state.messages.append( #let the user know their files have been processed
+                            {
+                                'role': 'assistant',
+                                'content': "All files have been uploaded and processed. There was an issue with one or more of them, though. How may I assist you with the valid files?"
+                            }
+                        )
+                        st.rerun()
+
+                    
 
 
                 
