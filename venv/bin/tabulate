@@ -1,9 +1,8 @@
 #!/bin/sh
-'''exec' "/Users/kaylinwilley/Documents/Assorted School/Senior Design/Bob/Kaylin-Bob-Fork/venv/bin/python3.13" "$0" "$@"
+'''exec' "/Users/kaylinwilley/Documents/Assorted School/Senior Design/Bob/Interactive-LLM-Dashboard-/venv/bin/python3.13" "$0" "$@"
 ' '''
 import sys
 from tabulate import _main
 if __name__ == '__main__':
-    if sys.argv[0].endswith('.exe'):
-        sys.argv[0] = sys.argv[0][:-4]
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
     sys.exit(_main())

@@ -18,13 +18,6 @@ from docling.document_converter import DocumentConverter
 #also note, for installations you should also be able to do pip install -r requirements.txt (all of the requirements should be in there)
 
 
-#docling testing --> remove after research is finished
-#source = "https://arxiv.org/pdf/2408.09869" --> where the file is coming from
-#converter = DocumentConverter() --> converter
-#doc = converter.convert(source).document --> convert the file into a docling document
-#print(doc.export_to_markdown()) --> output the document
-
-
 if __name__ == "__main__":
 
     st.set_page_config(layout="wide")
