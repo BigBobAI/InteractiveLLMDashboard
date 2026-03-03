@@ -60,4 +60,9 @@ Pyinstaller Information
 Troubleshooting for port issue:
 In terminal do: lsof -i :8501 
 ^^(This will show the processes with that port)..... kill them: kill -9 <PID>
+
+If pyinstaller stops working try:
+Deleting and recreating venv
+Uninstalling and reinstalling pyinstaller
+Deleting and reinstalling python from official site
 Further troubleshooting will be added if this stops working again. 

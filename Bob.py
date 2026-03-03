@@ -264,14 +264,14 @@ if __name__ == "__main__":
             i = 0 #counter for files uploaded, used for naming and saving files
             files_uploaded_length = len(files_uploaded) #length of the file uploader list, used to determine when we have uploaded all files in the list
             for files in files_uploaded:
+                
+                save_folder = 'files_uploaded_to_Bob'  #define the folder to save uploaded files
+                if not os.path.exists(save_folder):
+                    os.makedirs(save_folder) #if the folder doesn't exist, make it
+
+                #define the full path of the file and the folder
+                file_path = os.path.join(save_folder, files_uploaded[i].name)
                 try:
-                    save_folder = 'files_uploaded_to_Bob'  #define the folder to save uploaded files
-                    if not os.path.exists(save_folder):
-                        os.makedirs(save_folder) #if the folder doesn't exist, make it
-
-                    #define the full path of the file and the folder
-                    file_path = os.path.join(save_folder, files_uploaded[i].name)
-
                     #write the information of the file to the folder
                     with open(file_path, "wb") as f:
                         f.write(files_uploaded[i].getbuffer())                
@@ -319,6 +319,7 @@ if __name__ == "__main__":
                         )
                         st.rerun() #rerun to update the chat with the new assistant message about files being uploaded and processed
                 except Exception as e:
+                    st.error(e)
                     if files_uploaded[i].type == 'text/plain': #if the file i sjust plain text
                         file_contents = files_uploaded[i].read().decode("utf-8") #read and decode the file (put that in file data)
                         st.session_state.messages.append(
